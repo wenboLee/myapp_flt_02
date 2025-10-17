@@ -42,7 +42,120 @@ sudo apt install ffmpeg
 
 安装后，在命令行输入 `ffmpeg -version` 验证是否安装成功。
 
+## 重要说明
+
+### macOS 应用沙盒配置
+
+本应用**已禁用 macOS 应用沙盒**以支持：
+- 执行系统中的 ffmpeg 命令
+- 访问用户文件系统
+
+**影响：**
+- ✅ 可以正常使用 Homebrew 安装的 ffmpeg
+- ✅ 可以访问任意文件夹保存输出文件
+- ⚠️ **不能通过 Mac App Store 分发**（仅限直接分发或开发使用）
+
+**如果需要 App Store 发布：**
+需要将 ffmpeg 打包到应用内部，并重新启用应用沙盒。
+
 ## 运行应用
+
+### 在 macOS 上运行
+
+```bash
+# 进入项目目录
+cd myapp_flt_02
+
+# 安装依赖
+flutter pub get
+
+# 清理缓存（首次运行或修改配置后）
+flutter clean
+
+# 运行应用
+flutter run -d macos
+```
+
+### 构建 macOS 安装包
+
+本项目支持两种 macOS 构建方式：
+
+#### 方法 1：创建 DMG 安装包（推荐）
+
+**使用自动化脚本：**
+```bash
+# 在项目根目录下运行
+./build_macos_dmg.sh
+```
+
+**前置要求：**
+- 需要安装 `create-dmg` 工具（脚本会自动安装）
+- 或手动安装：`brew install create-dmg`
+
+**特点：**
+- ✅ 创建专业的 DMG 安装包
+- ✅ 包含背景、图标布局
+- ✅ 用户只需拖拽到 Applications 即可安装
+
+#### 方法 2：构建 .app 应用（快速）
+
+**使用简化脚本：**
+```bash
+# 在项目根目录下运行
+./build_macos_simple.sh
+```
+
+**特点：**
+- ✅ 快速构建，无需额外工具
+- ✅ 直接生成 .app 文件
+- ✅ 可以压缩后分发
+
+#### 方法 3：手动构建
+
+```bash
+# 1. 清理缓存
+flutter clean
+
+# 2. 获取依赖
+flutter pub get
+
+# 3. 构建 macOS 应用
+flutter build macos --release
+
+# 4. 查找构建结果
+# .app 文件位于: build/macos/Build/Products/Release/myapp_flt_02.app
+```
+
+#### 安装包位置
+
+**DMG 文件：**
+```
+build/macos/myapp_flt_02_1.0.0.dmg
+```
+
+**.app 文件：**
+```
+build/macos/Build/Products/Release/myapp_flt_02.app
+```
+
+#### 测试和安装
+
+**测试 DMG：**
+1. 双击 DMG 文件
+2. 拖拽应用到 Applications 文件夹
+3. 从启动台或 Applications 文件夹运行
+
+**直接使用 .app：**
+1. 双击 .app 文件直接运行
+2. 或拖拽到 Applications 文件夹
+
+#### 分发说明
+
+- ✅ 可以直接分发 DMG 或 .app
+- ✅ 用户无需安装 Flutter SDK
+- ✅ 用户需要安装 ffmpeg（通过 Homebrew）
+- ⚠️ 首次运行可能需要在"系统偏好设置 > 安全性与隐私"中允许运行
+- ⚠️ 应用已禁用沙盒，不能通过 Mac App Store 分发
 
 ### 在 Windows 上运行
 
@@ -57,14 +170,70 @@ flutter pub get
 flutter run -d windows
 ```
 
-### 构建 Windows 应用
+### 构建 Windows 安装包
+
+本项目支持两种构建方式：
+
+#### 方法 1：使用自动化脚本（推荐）
+
+**使用批处理脚本：**
+```bash
+# 在项目根目录下，双击或运行
+build_windows_installer.bat
+```
+
+**使用 PowerShell 脚本：**
+```powershell
+# 在项目根目录下，右键 "使用 PowerShell 运行"
+.\build_windows_installer.ps1
+```
+
+#### 方法 2：手动构建
 
 ```bash
-# 构建 Release 版本
+# 1. 清理缓存
+flutter clean
+
+# 2. 获取依赖
+flutter pub get
+
+# 3. 构建 Windows 应用
 flutter build windows --release
 
-# 构建产物在：build/windows/x64/runner/Release/
+# 4. 创建 MSIX 安装包
+dart run msix:create
 ```
+
+#### 安装包位置
+
+构建完成后，安装包位于：
+```
+build\windows\x64\runner\Release\myapp_flt_02.msix
+```
+
+#### MSIX 包信息
+
+- **应用名称**：文件拖拽应用
+- **发布者**：wenbooo
+- **版本**：1.0.0.0
+- **支持的功能**：
+  - 互联网访问
+  - 可移动存储访问
+  - 广泛的文件系统访问（支持执行 ffmpeg）
+
+#### 安装说明
+
+1. 双击 `.msix` 文件
+2. 点击"安装"按钮
+3. 等待安装完成
+4. 在开始菜单中找到"文件拖拽应用"
+
+#### 分发说明
+
+- ✅ 可以直接分发 `.msix` 文件
+- ✅ 用户无需安装 Flutter SDK
+- ✅ 用户需要安装 ffmpeg（通过 Chocolatey 或手动）
+- ⚠️ 首次安装可能需要启用"开发人员模式"或安装开发者证书
 
 ## 使用说明
 

@@ -19,6 +19,16 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  msix: ^3.16.7
+
+msix_config:
+  display_name: 文件拖拽应用
+  publisher_display_name: wenbooo
+  identity_name: cn.wenbooo.myappflt02
+  msix_version: 1.0.0.0
+  logo_path: windows\runner\resources\app_icon.ico
+  capabilities: 'internetClient,removableStorage,broadFileSystemAccess'
+  languages: zh-cn,en-us
 
 flutter:
 

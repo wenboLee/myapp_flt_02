@@ -94,7 +94,7 @@ class _FileDropScreenState extends State<FileDropScreen> {
 
   bool _isVideoFile(String filePath) {
     final extension = filePath.split('.').last.toLowerCase();
-    return ['mp4', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'm3u8', 'ts'].contains(extension);
+    return ['mp4', 'm4a', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'm3u8', 'ts'].contains(extension);
   }
 
   Future<void> _mergeVideos() async {
@@ -127,18 +127,43 @@ class _FileDropScreenState extends State<FileDropScreen> {
       return;
     }
     
+    // 从第一个视频文件获取文件名
+    final firstVideoFileName = path.basenameWithoutExtension(videoFiles[0].path);
+    final defaultOutputFileName = '$firstVideoFileName-merged.mp4';
+    
     // 选择输出文件路径
-    final outputPath = await FilePicker.platform.saveFile(
-      dialogTitle: '选择输出文件位置',
-      fileName: 'output.mp4',
-      type: FileType.custom,
-      allowedExtensions: ['mp4'],
-    );
+    String? outputPath;
+    try {
+      outputPath = await FilePicker.platform.saveFile(
+        dialogTitle: '选择输出文件位置',
+        fileName: defaultOutputFileName,
+        type: FileType.custom,
+        allowedExtensions: ['mp4'],
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('文件选择器错误：${e.toString()}'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
     
     if (outputPath == null) {
       // 用户取消了保存
+       ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('取消了'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
       return;
     }
+    
+    // 将 outputPath 赋值给非空变量
+    final String outputFilePath = outputPath;
     
     // 检查 ffmpeg 是否安装
     if (!mounted) return;
@@ -165,21 +190,21 @@ class _FileDropScreenState extends State<FileDropScreen> {
       
       final shell = Shell();
       await shell.run(
-        'ffmpeg -i "$inputFile1" -i "$inputFile2" -c copy "$outputPath"',
+        'ffmpeg -i "$inputFile1" -i "$inputFile2" -c copy "$outputFilePath"',
       );
       
       // 合并成功
       if (!mounted) return;
       Navigator.of(context).pop(); // 关闭进度对话框
       
-      final fileName = path.basename(outputPath);
+      final fileName = path.basename(outputFilePath);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('合并成功！输出文件：$fileName'),
           duration: const Duration(seconds: 3),
           action: SnackBarAction(
             label: '打开文件夹',
-            onPressed: () => _openFileLocation(outputPath),
+            onPressed: () => _openFileLocation(outputFilePath),
           ),
         ),
       );
