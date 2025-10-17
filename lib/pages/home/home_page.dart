@@ -1,0 +1,264 @@
+import 'package:cross_file/cross_file.dart';
+import 'package:desktop_drop/desktop_drop.dart';
+import 'package:flutter/material.dart';
+
+class FileDropScreen extends StatefulWidget {
+  const FileDropScreen({super.key});
+
+  @override
+  State<FileDropScreen> createState() => _FileDropScreenState();
+}
+
+class _FileDropScreenState extends State<FileDropScreen> {
+  final List<XFile> _files = [];
+  bool _isDragging = false;
+
+  void _onDragEntered() {
+    setState(() {
+      _isDragging = true;
+    });
+  }
+
+  void _onDragExited() {
+    setState(() {
+      _isDragging = false;
+    });
+  }
+
+  void _onDragDone(DropDoneDetails details) {
+    setState(() {
+      _isDragging = false;
+      _files.addAll(details.files);
+    });
+  }
+
+  void _clearFiles() {
+    setState(() {
+      _files.clear();
+    });
+  }
+
+  void _removeFile(int index) {
+    setState(() {
+      _files.removeAt(index);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: const Text('文件拖拽应用'),
+        actions: [
+          if (_files.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.clear_all),
+              tooltip: '清空所有文件',
+              onPressed: _clearFiles,
+            ),
+        ],
+      ),
+      body: Column(
+        children: [
+          _buildDropZone(),
+          _buildFileList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDropZone() {
+    return DropTarget(
+      onDragEntered: (_) => _onDragEntered(),
+      onDragExited: (_) => _onDragExited(),
+      onDragDone: _onDragDone,
+      child: Container(
+        height: 200,
+        margin: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: _isDragging
+              ? Colors.blue.withValues(alpha: 0.2)
+              : Colors.grey.withValues(alpha: 0.1),
+          border: Border.all(
+            color: _isDragging ? Colors.blue : Colors.grey,
+            width: 2,
+            strokeAlign: BorderSide.strokeAlignInside,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                _isDragging ? Icons.file_download : Icons.file_upload_outlined,
+                size: 64,
+                color: _isDragging ? Colors.blue : Colors.grey,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _isDragging ? '释放以添加文件' : '拖拽文件到此处',
+                style: TextStyle(
+                  fontSize: 18,
+                  color: _isDragging ? Colors.blue : Colors.grey[700],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '支持拖拽多个文件',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFileList() {
+    if (_files.isEmpty) {
+      return Expanded(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.folder_open,
+                size: 64,
+                color: Colors.grey[400],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                '暂无文件',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+            child: Text(
+              '已添加 ${_files.length} 个文件',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[800],
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: _files.length,
+              itemBuilder: (context, index) {
+                return _FileListItem(
+                  file: _files[index],
+                  index: index,
+                  onRemove: () => _removeFile(index),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FileListItem extends StatelessWidget {
+  const _FileListItem({
+    required this.file,
+    required this.index,
+    required this.onRemove,
+  });
+
+  final XFile file;
+  final int index;
+  final VoidCallback onRemove;
+
+  String _getFileName(String path) {
+    return path.split('/').last.split('\\').last;
+  }
+
+  IconData _getFileIcon(String fileName) {
+    final extension = fileName.split('.').last.toLowerCase();
+    switch (extension) {
+      case 'pdf':
+        return Icons.picture_as_pdf;
+      case 'doc':
+      case 'docx':
+        return Icons.description;
+      case 'xls':
+      case 'xlsx':
+        return Icons.table_chart;
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+        return Icons.image;
+      case 'mp4':
+      case 'avi':
+      case 'mov':
+        return Icons.video_file;
+      case 'mp3':
+      case 'wav':
+        return Icons.audio_file;
+      case 'zip':
+      case 'rar':
+        return Icons.folder_zip;
+      case 'txt':
+        return Icons.text_snippet;
+      default:
+        return Icons.insert_drive_file;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fileName = _getFileName(file.path);
+    
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: Icon(
+          _getFileIcon(fileName),
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        title: Text(
+          fileName,
+          style: const TextStyle(fontWeight: FontWeight.w500),
+        ),
+        subtitle: Text(
+          file.path,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey[600],
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: onRemove,
+          tooltip: '移除',
+        ),
+      ),
+    );
+  }
+}
+
