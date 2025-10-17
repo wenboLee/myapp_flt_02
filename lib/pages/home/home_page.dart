@@ -1,6 +1,11 @@
+import 'dart:io';
+
 import 'package:cross_file/cross_file.dart';
 import 'package:desktop_drop/desktop_drop.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as path;
+import 'package:process_run/shell.dart';
 
 class FileDropScreen extends StatefulWidget {
   const FileDropScreen({super.key});
@@ -62,10 +67,176 @@ class _FileDropScreenState extends State<FileDropScreen> {
       body: Column(
         children: [
           _buildDropZone(),
+          if (_files.isNotEmpty) _buildActionBar(),
           _buildFileList(),
         ],
       ),
     );
+  }
+
+  Widget _buildActionBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          ElevatedButton.icon(
+            onPressed: _mergeVideos,
+            icon: const Icon(Icons.video_library),
+            label: const Text('合并视频'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _isVideoFile(String filePath) {
+    final extension = filePath.split('.').last.toLowerCase();
+    return ['mp4', 'avi', 'mov', 'mkv', 'flv', 'wmv', 'm3u8', 'ts'].contains(extension);
+  }
+
+  Future<void> _mergeVideos() async {
+    if (_files.isEmpty) {
+      return;
+    }
+    
+    // 过滤出视频文件
+    final videoFiles = _files.where((file) => _isVideoFile(file.path)).toList();
+    
+    if (videoFiles.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('没有找到视频文件'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    
+    if (videoFiles.length < 2) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('请添加至少2个视频文件（如 video.m3u8 和 audio.m3u8）'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+    
+    // 选择输出文件路径
+    final outputPath = await FilePicker.platform.saveFile(
+      dialogTitle: '选择输出文件位置',
+      fileName: 'output.mp4',
+      type: FileType.custom,
+      allowedExtensions: ['mp4'],
+    );
+    
+    if (outputPath == null) {
+      // 用户取消了保存
+      return;
+    }
+    
+    // 检查 ffmpeg 是否安装
+    if (!mounted) return;
+    final hasFFmpeg = await _checkFFmpegInstalled();
+    if (!hasFFmpeg) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('未检测到 ffmpeg，请先安装 ffmpeg'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+    
+    // 显示合并进度
+    if (!mounted) return;
+    _showMergingDialog();
+    
+    try {
+      // 执行 ffmpeg 命令
+      final inputFile1 = videoFiles[0].path;
+      final inputFile2 = videoFiles[1].path;
+      
+      final shell = Shell();
+      await shell.run(
+        'ffmpeg -i "$inputFile1" -i "$inputFile2" -c copy "$outputPath"',
+      );
+      
+      // 合并成功
+      if (!mounted) return;
+      Navigator.of(context).pop(); // 关闭进度对话框
+      
+      final fileName = path.basename(outputPath);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('合并成功！输出文件：$fileName'),
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: '打开文件夹',
+            onPressed: () => _openFileLocation(outputPath),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // 关闭进度对话框
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('合并失败：${e.toString()}'),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  Future<bool> _checkFFmpegInstalled() async {
+    try {
+      final shell = Shell();
+      await shell.run('ffmpeg -version');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  void _showMergingDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('正在合并视频...'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openFileLocation(String filePath) {
+    final directory = path.dirname(filePath);
+    
+    try {
+      if (Platform.isWindows) {
+        Process.run('explorer', [directory]);
+      } else if (Platform.isMacOS) {
+        Process.run('open', [directory]);
+      } else if (Platform.isLinux) {
+        Process.run('xdg-open', [directory]);
+      }
+    } catch (e) {
+      // 忽略错误
+    }
   }
 
   Widget _buildDropZone() {
