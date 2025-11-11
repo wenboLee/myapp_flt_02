@@ -1,6 +1,6 @@
 name: myapp_flt_02
 description: "A new Flutter project."
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.8.0

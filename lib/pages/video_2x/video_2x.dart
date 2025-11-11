@@ -101,6 +101,120 @@ class _Video2xPageState extends State<Video2xPage> {
     }
   }
 
+  Future<void> _showSpeedDialog(XFile file) async {
+    double selectedSpeed = 2.0;
+    
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: const Text('选择速度倍数'),
+              content: SizedBox(
+                width: 350,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '请选择音频播放速度倍数',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '${selectedSpeed.toStringAsFixed(1)}x',
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Slider(
+                      value: selectedSpeed,
+                      min: 1.5,
+                      max: 5.0,
+                      divisions: 35,
+                      label: '${selectedSpeed.toStringAsFixed(1)}x',
+                      onChanged: (value) {
+                        setState(() {
+                          selectedSpeed = value;
+                        });
+                      },
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '1.5x',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        Text(
+                          '5.0x',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 16,
+                            color: Colors.blue[700],
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '倍速范围：1.5x - 5.0x',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.blue[700],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('取消'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    _processAudioAtTempo(file, selectedSpeed);
+                  },
+                  child: const Text('确定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   String _buildAtempoFilter(double tempo) {
     // atempo accepts values in [0.5, 2.0]. For tempo > 2.0 we chain filters.
     if (tempo <= 2.0 && tempo >= 0.5) {
@@ -131,7 +245,7 @@ class _Video2xPageState extends State<Video2xPage> {
     final inputPath = file.path;
     final dir = path.dirname(inputPath);
     final baseName = path.basenameWithoutExtension(inputPath);
-    final suffix = tempo == 2.0 ? '2x' : '${tempo.toStringAsFixed(0)}x';
+    final suffix = '${tempo.toStringAsFixed(1)}x';
     final outputPath = path.join(dir, '$baseName-$suffix.m4a');
 
     // check ffmpeg
@@ -296,8 +410,8 @@ class _Video2xPageState extends State<Video2xPage> {
                           ),
                           IconButton(
                             icon: const Icon(Icons.fast_forward),
-                            tooltip: '3x',
-                            onPressed: () => _processAudioAtTempo(file, 3.0),
+                            tooltip: '自定义速度',
+                            onPressed: () => _showSpeedDialog(file),
                           ),
                         ],
                         IconButton(
