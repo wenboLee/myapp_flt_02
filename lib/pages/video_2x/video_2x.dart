@@ -55,6 +55,13 @@ class _Video2xPageState extends State<Video2xPage> {
     return ['mp3', 'wav', 'm4a', 'aac', 'flac'].contains(ext);
   }
 
+  bool _isVideoFile(String filePath) {
+    final ext = filePath.split('.').last.toLowerCase();
+    return [
+      'mp4', 'm4v', 'mov', 'mkv', 'avi', 'wmv', 'webm', 'flv', '3gp'
+    ].contains(ext);
+  }
+
   // 通用 processing 状态
   bool _isProcessing = false;
   String? _processingMessage;
@@ -116,9 +123,11 @@ class _Video2xPageState extends State<Video2xPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      '请选择音频播放速度倍数',
-                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    Text(
+                      _isVideoFile(file.path)
+                          ? '请选择视频播放速度倍数'
+                          : '请选择音频播放速度倍数',
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                     const SizedBox(height: 20),
                     Row(
@@ -203,7 +212,11 @@ class _Video2xPageState extends State<Video2xPage> {
                 ElevatedButton(
                   onPressed: () {
                     Navigator.of(context).pop();
-                    _processAudioAtTempo(file, selectedSpeed);
+                    if (_isVideoFile(file.path)) {
+                      _processVideoAtTempo(file, selectedSpeed);
+                    } else {
+                      _processAudioAtTempo(file, selectedSpeed);
+                    }
                   },
                   child: const Text('确定'),
                 ),
@@ -266,6 +279,56 @@ class _Video2xPageState extends State<Video2xPage> {
       final shell = Shell();
       await shell.run(
         'ffmpeg -i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
+      );
+
+      if (!mounted) return;
+      _stopProcessing();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('生成成功：${path.basename(outputPath)}'),
+          action: SnackBarAction(
+            label: '打开文件夹',
+            onPressed: () => _openFileLocation(outputPath),
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _stopProcessing();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('处理失败：${e.toString()}')));
+    }
+  }
+
+  Future<void> _processVideoAtTempo(XFile file, double tempo) async {
+    final inputPath = file.path;
+    final dir = path.dirname(inputPath);
+    final baseName = path.basenameWithoutExtension(inputPath);
+    final ext = path.extension(inputPath);
+    final suffix = '${tempo.toStringAsFixed(1)}x';
+    final outputPath = path.join(dir, '$baseName-$suffix$ext');
+
+    // check ffmpeg
+    final hasFFmpeg = await _checkFFmpegInstalled();
+    if (!hasFFmpeg) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg')));
+      return;
+    }
+
+    if (!mounted) return;
+    _startProcessing('正在生成 $suffix 视频...');
+
+    try {
+      final aFilter = _buildAtempoFilter(tempo);
+      final vFactor = (1.0 / tempo).toStringAsFixed(6);
+      final shell = Shell();
+      await shell.run(
+        'ffmpeg -i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
       );
 
       if (!mounted) return;
@@ -407,6 +470,18 @@ class _Video2xPageState extends State<Video2xPage> {
                             icon: const Icon(Icons.speed),
                             tooltip: '2x',
                             onPressed: () => _processAudioAtTempo(file, 2.0),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.fast_forward),
+                            tooltip: '自定义速度',
+                            onPressed: () => _showSpeedDialog(file),
+                          ),
+                        ],
+                        if (_isVideoFile(file.path)) ...[
+                          IconButton(
+                            icon: const Icon(Icons.speed),
+                            tooltip: '2x',
+                            onPressed: () => _processVideoAtTempo(file, 2.0),
                           ),
                           IconButton(
                             icon: const Icon(Icons.fast_forward),
