@@ -4,8 +4,8 @@ import 'package:cross_file/cross_file.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:myapp_flt_02/pages/video_merge/drop_zone_widget.dart';
+import 'package:myapp_flt_02/utils/ffmpeg_helper.dart';
 import 'package:path/path.dart' as path;
-import 'package:process_run/shell.dart';
 
 class Video2xPage extends StatefulWidget {
   const Video2xPage({super.key});
@@ -83,13 +83,7 @@ class _Video2xPageState extends State<Video2xPage> {
   }
 
   Future<bool> _checkFFmpegInstalled() async {
-    try {
-      final shell = Shell();
-      await shell.run('ffmpeg -version');
-      return true;
-    } catch (e) {
-      return false;
-    }
+    return await FFmpegHelper.isFFmpegAvailable();
   }
 
   void _openFileLocation(String filePath) {
@@ -300,9 +294,8 @@ class _Video2xPageState extends State<Video2xPage> {
     }
 
     final filter = _buildAtempoFilter(tempo);
-    final shell = Shell();
-    await shell.run(
-      'ffmpeg -i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
+    await FFmpegHelper.runFFmpegShell(
+      '-i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
     );
   }
 
@@ -321,9 +314,8 @@ class _Video2xPageState extends State<Video2xPage> {
 
     final aFilter = _buildAtempoFilter(tempo);
     final vFactor = (1.0 / tempo).toStringAsFixed(6);
-    final shell = Shell();
-    await shell.run(
-      'ffmpeg -i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
+    await FFmpegHelper.runFFmpegShell(
+      '-i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
     );
   }
 
@@ -366,7 +358,7 @@ class _Video2xPageState extends State<Video2xPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg')));
+      ).showSnackBar(const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg 或确保应用已打包 ffmpeg')));
       return;
     }
 
@@ -375,9 +367,8 @@ class _Video2xPageState extends State<Video2xPage> {
 
     try {
       final filter = _buildAtempoFilter(tempo);
-      final shell = Shell();
-      await shell.run(
-        'ffmpeg -i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
+      await FFmpegHelper.runFFmpegShell(
+        '-i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
       );
 
       if (!mounted) return;
@@ -415,7 +406,7 @@ class _Video2xPageState extends State<Video2xPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg')));
+      ).showSnackBar(const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg 或确保应用已打包 ffmpeg')));
       return;
     }
 
@@ -425,9 +416,8 @@ class _Video2xPageState extends State<Video2xPage> {
     try {
       final aFilter = _buildAtempoFilter(tempo);
       final vFactor = (1.0 / tempo).toStringAsFixed(6);
-      final shell = Shell();
-      await shell.run(
-        'ffmpeg -i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
+      await FFmpegHelper.runFFmpegShell(
+        '-i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
       );
 
       if (!mounted) return;
