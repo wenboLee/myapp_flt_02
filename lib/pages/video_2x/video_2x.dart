@@ -108,25 +108,74 @@ class _Video2xPageState extends State<Video2xPage> {
     }
   }
 
-  Future<void> _showSpeedDialog(XFile file) async {
+  Future<void> _batchProcessAllFiles() async {
+    if (_files.isEmpty) return;
+
+    final selectedSpeed = await _showSpeedSelectionDialog(
+      title: '批量处理 - 选择速度倍数',
+      message: '将对所有 ${_files.length} 个文件应用相同的速度倍数',
+    );
+
+    if (selectedSpeed == null) return;
+
+    _startProcessing('批量处理中...');
+
+    int successCount = 0;
+    int failCount = 0;
+
+    for (int i = 0; i < _files.length; i++) {
+      final file = _files[i];
+      
+      setState(() {
+        _processingMessage = '正在处理 ${i + 1}/${_files.length}: ${path.basename(file.path)}';
+      });
+
+      try {
+        if (_isVideoFile(file.path)) {
+          await _processVideoAtTempoSilent(file, selectedSpeed);
+        } else if (_isAudioFile(file.path)) {
+          await _processAudioAtTempoSilent(file, selectedSpeed);
+        } else {
+          continue;
+        }
+        successCount++;
+      } catch (e) {
+        failCount++;
+      }
+    }
+
+    _stopProcessing();
+
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('批处理完成：成功 $successCount 个，失败 $failCount 个'),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<double?> _showSpeedSelectionDialog({
+    required String title,
+    required String message,
+  }) async {
     double selectedSpeed = 2.0;
     
-    await showDialog<void>(
+    return await showDialog<double>(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              title: const Text('选择速度倍数'),
+              title: Text(title),
               content: SizedBox(
                 width: 350,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      _isVideoFile(file.path)
-                          ? '请选择视频播放速度倍数'
-                          : '请选择音频播放速度倍数',
+                      message,
                       style: const TextStyle(fontSize: 14, color: Colors.grey),
                     ),
                     const SizedBox(height: 20),
@@ -206,18 +255,11 @@ class _Video2xPageState extends State<Video2xPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () => Navigator.of(context).pop(null),
                   child: const Text('取消'),
                 ),
                 ElevatedButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    if (_isVideoFile(file.path)) {
-                      _processVideoAtTempo(file, selectedSpeed);
-                    } else {
-                      _processAudioAtTempo(file, selectedSpeed);
-                    }
-                  },
+                  onPressed: () => Navigator.of(context).pop(selectedSpeed),
                   child: const Text('确定'),
                 ),
               ],
@@ -225,6 +267,63 @@ class _Video2xPageState extends State<Video2xPage> {
           },
         );
       },
+    );
+  }
+
+  Future<void> _showSpeedDialog(XFile file) async {
+    final selectedSpeed = await _showSpeedSelectionDialog(
+      title: '选择速度倍数',
+      message: _isVideoFile(file.path)
+          ? '请选择视频播放速度倍数'
+          : '请选择音频播放速度倍数',
+    );
+
+    if (selectedSpeed == null) return;
+
+    if (_isVideoFile(file.path)) {
+      await _processVideoAtTempo(file, selectedSpeed);
+    } else {
+      await _processAudioAtTempo(file, selectedSpeed);
+    }
+  }
+
+  Future<void> _processAudioAtTempoSilent(XFile file, double tempo) async {
+    final inputPath = file.path;
+    final dir = path.dirname(inputPath);
+    final baseName = path.basenameWithoutExtension(inputPath);
+    final suffix = '${tempo.toStringAsFixed(1)}x';
+    final outputPath = path.join(dir, '$baseName-$suffix.m4a');
+
+    final hasFFmpeg = await _checkFFmpegInstalled();
+    if (!hasFFmpeg) {
+      throw Exception('未检测到 ffmpeg');
+    }
+
+    final filter = _buildAtempoFilter(tempo);
+    final shell = Shell();
+    await shell.run(
+      'ffmpeg -i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
+    );
+  }
+
+  Future<void> _processVideoAtTempoSilent(XFile file, double tempo) async {
+    final inputPath = file.path;
+    final dir = path.dirname(inputPath);
+    final baseName = path.basenameWithoutExtension(inputPath);
+    final ext = path.extension(inputPath);
+    final suffix = '${tempo.toStringAsFixed(1)}x';
+    final outputPath = path.join(dir, '$baseName-$suffix$ext');
+
+    final hasFFmpeg = await _checkFFmpegInstalled();
+    if (!hasFFmpeg) {
+      throw Exception('未检测到 ffmpeg');
+    }
+
+    final aFilter = _buildAtempoFilter(tempo);
+    final vFactor = (1.0 / tempo).toStringAsFixed(6);
+    final shell = Shell();
+    await shell.run(
+      'ffmpeg -i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
     );
   }
 
@@ -429,13 +528,33 @@ class _Video2xPageState extends State<Video2xPage> {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Text(
-              '已添加 ${_files.length} 个文件',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey[800],
-              ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '已添加 ${_files.length} 个文件',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.grey[800],
+                  ),
+                ),
+                Row(
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: _isProcessing ? null : () => _batchProcessAllFiles(),
+                      icon: const Icon(Icons.playlist_play, size: 20),
+                      label: const Text('批量处理'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
           Expanded(

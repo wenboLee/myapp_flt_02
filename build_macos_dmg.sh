@@ -79,12 +79,27 @@ if ! command -v create-dmg &> /dev/null; then
 fi
 
 # 创建 DMG
-OUTPUT_DMG="build/macos/${DMG_NAME}"
-rm -f "$OUTPUT_DMG"
+TEMP_OUTPUT_DMG="build/macos/temp_${DMG_NAME}"
+FINAL_OUTPUT_DMG="build/macos/${DMG_NAME}"
 
+# 删除可能存在的旧文件
+rm -f "$TEMP_OUTPUT_DMG" "$FINAL_OUTPUT_DMG"
+rm -f build/macos/rw.*.dmg
+
+# 检查图标文件是否存在
+ICON_PARAM=""
+if [ -f "$APP_PATH/Contents/Resources/AppIcon.icns" ]; then
+    ICON_PARAM="--volicon $APP_PATH/Contents/Resources/AppIcon.icns"
+    echo -e "${GREEN}找到应用图标${NC}"
+else
+    echo -e "${YELLOW}未找到 AppIcon.icns，将使用默认图标${NC}"
+fi
+
+# 创建临时读写 DMG
+echo -e "${CYAN}创建临时 DMG...${NC}"
 create-dmg \
   --volname "${APP_NAME}" \
-  --volicon "$APP_PATH/Contents/Resources/AppIcon.icns" \
+  $ICON_PARAM \
   --window-pos 200 120 \
   --window-size 600 400 \
   --icon-size 100 \
@@ -92,13 +107,61 @@ create-dmg \
   --hide-extension "${APP_BUNDLE_NAME}.app" \
   --app-drop-link 450 185 \
   --no-internet-enable \
-  "$OUTPUT_DMG" \
+  "$TEMP_OUTPUT_DMG" \
   "$OUTPUT_DIR"
 
-if [ $? -ne 0 ]; then
-    echo -e "${RED}创建 DMG 失败！${NC}"
+# create-dmg 会创建一个随机名称的文件（如 rw.xxxxx.dmg），需要重命名
+TEMP_DMG=$(ls build/macos/rw.*.dmg 2>/dev/null | head -n 1)
+if [ -f "$TEMP_DMG" ]; then
+    echo -e "${GREEN}发现临时 DMG 文件：$TEMP_DMG${NC}"
+    mv "$TEMP_DMG" "$TEMP_OUTPUT_DMG"
+    echo -e "${GREEN}已重命名为临时文件${NC}"
+fi
+
+if [ ! -f "$TEMP_OUTPUT_DMG" ]; then
+    echo -e "${RED}创建临时 DMG 失败！${NC}"
     exit 1
 fi
+
+# 确保临时 DMG 未被挂载
+echo ""
+echo -e "${CYAN}检查并卸载可能挂载的卷...${NC}"
+MOUNTED_VOL=$(hdiutil info | grep "$TEMP_OUTPUT_DMG" -A 5 | grep "/Volumes/" | awk '{print $1}')
+if [ ! -z "$MOUNTED_VOL" ]; then
+    echo -e "${YELLOW}发现挂载的卷，正在卸载...${NC}"
+    hdiutil detach "$MOUNTED_VOL" -force 2>/dev/null || true
+    sleep 2
+fi
+
+# 卸载所有相关的应用卷
+hdiutil detach "/Volumes/${APP_NAME}" -force 2>/dev/null || true
+sleep 1
+
+# 转换为只读、压缩的最终 DMG
+echo ""
+echo -e "${CYAN}转换为只读压缩 DMG...${NC}"
+hdiutil convert "$TEMP_OUTPUT_DMG" \
+  -format UDZO \
+  -imagekey zlib-level=9 \
+  -o "$FINAL_OUTPUT_DMG"
+
+if [ $? -ne 0 ]; then
+    echo -e "${RED}转换 DMG 失败！${NC}"
+    rm -f "$TEMP_OUTPUT_DMG"
+    exit 1
+fi
+
+# 清理临时文件
+rm -f "$TEMP_OUTPUT_DMG"
+echo -e "${GREEN}已删除临时 DMG 文件${NC}"
+
+# 验证最终 DMG
+if [ ! -f "$FINAL_OUTPUT_DMG" ]; then
+    echo -e "${RED}最终 DMG 文件未找到！${NC}"
+    exit 1
+fi
+
+OUTPUT_DMG="$FINAL_OUTPUT_DMG"
 
 # 清理临时目录
 rm -rf "$OUTPUT_DIR"
