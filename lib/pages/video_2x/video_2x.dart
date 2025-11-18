@@ -86,6 +86,67 @@ class _Video2xPageState extends State<Video2xPage> {
     return await FFmpegHelper.isFFmpegAvailable();
   }
 
+  Future<void> _showFFmpegDiagnosis() async {
+    final diagnosis = await FFmpegHelper.diagnose();
+    
+    if (!mounted) return;
+    
+    final buffer = StringBuffer();
+    buffer.writeln('平台: ${diagnosis['platform']}');
+    buffer.writeln('');
+    buffer.writeln('打包的 ffmpeg: ${diagnosis['bundled_ffmpeg'] ?? '未找到'}');
+    buffer.writeln('系统 ffmpeg: ${diagnosis['system_ffmpeg'] ?? '未找到'}');
+    buffer.writeln('');
+    
+    if (diagnosis['common_paths_checked'] != null) {
+      buffer.writeln('检查的路径:');
+      for (final check in diagnosis['common_paths_checked']) {
+        final path = check['path'];
+        final exists = check['exists'] ? '✓' : '✗';
+        buffer.writeln('  $exists $path');
+      }
+      buffer.writeln('');
+    }
+    
+    buffer.writeln('最终路径: ${diagnosis['final_path'] ?? '未找到'}');
+    buffer.writeln('是否可用: ${diagnosis['is_available'] ? '是' : '否'}');
+    
+    if (diagnosis['version'] != null) {
+      buffer.writeln('');
+      buffer.writeln('版本: ${diagnosis['version']}');
+    }
+    
+    if (diagnosis['error'] != null) {
+      buffer.writeln('');
+      buffer.writeln('错误: ${diagnosis['error']}');
+    }
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('FFmpeg 诊断信息'),
+        content: SizedBox(
+          width: 500,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              buffer.toString(),
+              style: const TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openFileLocation(String filePath) {
     final directory = path.dirname(filePath);
 
@@ -448,6 +509,11 @@ class _Video2xPageState extends State<Video2xPage> {
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         title: const Text('音视频 2x'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'FFmpeg 诊断信息',
+            onPressed: _showFFmpegDiagnosis,
+          ),
           if (_files.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.clear_all),

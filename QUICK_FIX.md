@@ -70,6 +70,12 @@ ls -lh /Applications/myapp_flt_02.app/Contents/Resources/ffmpeg
 
 ## 常见问题
 
+**Q: 应用提示「未检测到 ffmpeg」，但我已经安装了？**
+A: 
+1. 点击应用右上角的 ℹ️ 按钮查看「FFmpeg 诊断信息」
+2. 或运行测试脚本：`./test_ffmpeg_detection.sh`
+3. 查看详细解决方案：[FFMPEG_DETECTION_FIX.md](./FFMPEG_DETECTION_FIX.md)
+
 **Q: 首次打开提示「无法验证开发者」？**
 A: 右键点击应用 → 选择「打开」→ 确认打开
 
@@ -81,4 +87,7 @@ A: 查看 Console.app 日志，或运行：
 
 **Q: 构建脚本找不到 ffmpeg？**
 A: 先安装 ffmpeg：`brew install ffmpeg`
+
+**Q: 开发时正常，DMG 安装后失败？**
+A: DMG 应用需要打包 ffmpeg，使用 `./build_macos_dmg_with_ffmpeg.sh`
 

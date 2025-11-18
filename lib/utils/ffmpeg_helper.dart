@@ -73,10 +73,10 @@ class FFmpegHelper {
 
   /// 查找系统 PATH 中的 ffmpeg
   static Future<String?> _getSystemFFmpegPath() async {
-    try {
-      final shell = Shell();
-      
-      if (Platform.isWindows) {
+    if (Platform.isWindows) {
+      // Windows: 使用 where 命令
+      try {
+        final shell = Shell();
         final result = await shell.run('where ffmpeg');
         if (result.isNotEmpty && result.first.exitCode == 0) {
           final output = result.first.outText.trim();
@@ -86,19 +86,58 @@ class FFmpegHelper {
             return ffmpegPath;
           }
         }
-      } else {
-        // macOS/Linux
+      } catch (e) {
+        print('查找系统 ffmpeg 时出错: $e');
+      }
+    } else {
+      // macOS/Linux: 先检查常见安装位置，再使用 which 命令
+      final commonPaths = [
+        '/opt/homebrew/bin/ffmpeg',  // Apple Silicon Mac (M1/M2/M3)
+        '/usr/local/bin/ffmpeg',     // Intel Mac / Homebrew
+        '/usr/bin/ffmpeg',           // 系统安装
+        '/opt/local/bin/ffmpeg',     // MacPorts
+      ];
+
+      // 1. 优先检查常见路径
+      for (final ffmpegPath in commonPaths) {
+        final file = File(ffmpegPath);
+        if (await file.exists()) {
+          print('✓ 找到系统 ffmpeg: $ffmpegPath');
+          return ffmpegPath;
+        }
+      }
+
+      // 2. 尝试使用 which 命令（设置完整 PATH）
+      try {
+        final shell = Shell(
+          environment: {
+            'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/opt/local/bin',
+          },
+        );
         final result = await shell.run('which ffmpeg');
         if (result.isNotEmpty && result.first.exitCode == 0) {
           final output = result.first.outText.trim();
           if (output.isNotEmpty) {
-            print('✓ 找到系统 ffmpeg: $output');
+            print('✓ 找到系统 ffmpeg (via which): $output');
             return output;
           }
         }
+      } catch (e) {
+        print('which 命令查找失败: $e');
       }
-    } catch (e) {
-      print('查找系统 ffmpeg 时出错: $e');
+
+      // 3. 最后尝试直接执行 /opt/homebrew/bin/ffmpeg 或 /usr/local/bin/ffmpeg
+      for (final ffmpegPath in ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
+        try {
+          final result = await Process.run(ffmpegPath, ['-version']);
+          if (result.exitCode == 0) {
+            print('✓ 找到系统 ffmpeg (via direct exec): $ffmpegPath');
+            return ffmpegPath;
+          }
+        } catch (e) {
+          // 继续尝试下一个路径
+        }
+      }
     }
 
     return null;
@@ -207,6 +246,62 @@ class FFmpegHelper {
   /// 清除缓存的 ffmpeg 路径（用于测试或重新检测）
   static void clearCache() {
     _cachedFFmpegPath = null;
+  }
+
+  /// 诊断 ffmpeg 检测问题（用于调试）
+  /// 
+  /// 返回详细的诊断信息
+  static Future<Map<String, dynamic>> diagnose() async {
+    final result = <String, dynamic>{
+      'platform': Platform.operatingSystem,
+      'bundled_ffmpeg': null,
+      'system_ffmpeg': null,
+      'common_paths_checked': [],
+      'final_path': null,
+      'is_available': false,
+      'version': null,
+    };
+
+    try {
+      // 检查打包的 ffmpeg
+      final bundled = await _getBundledFFmpegPath();
+      result['bundled_ffmpeg'] = bundled;
+
+      // 检查系统 ffmpeg
+      if (Platform.isMacOS || Platform.isLinux) {
+        final commonPaths = [
+          '/opt/homebrew/bin/ffmpeg',
+          '/usr/local/bin/ffmpeg',
+          '/usr/bin/ffmpeg',
+          '/opt/local/bin/ffmpeg',
+        ];
+
+        for (final path in commonPaths) {
+          final exists = await File(path).exists();
+          result['common_paths_checked'].add({
+            'path': path,
+            'exists': exists,
+          });
+        }
+      }
+
+      final system = await _getSystemFFmpegPath();
+      result['system_ffmpeg'] = system;
+
+      // 最终检测结果
+      clearCache(); // 清除缓存，重新检测
+      final finalPath = await getFFmpegPath();
+      result['final_path'] = finalPath;
+      result['is_available'] = finalPath != null;
+
+      if (finalPath != null) {
+        result['version'] = await getFFmpegVersion();
+      }
+    } catch (e) {
+      result['error'] = e.toString();
+    }
+
+    return result;
   }
 }
 
