@@ -5,6 +5,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:myapp_flt_02/pages/video_merge/drop_zone_widget.dart';
 import 'package:myapp_flt_02/utils/ffmpeg_helper.dart';
+import 'package:myapp_flt_02/utils/media_file_utils.dart';
 import 'package:path/path.dart' as path;
 
 class Video2xPage extends StatefulWidget {
@@ -53,13 +54,6 @@ class _Video2xPageState extends State<Video2xPage> {
   bool _isAudioFile(String filePath) {
     final ext = filePath.split('.').last.toLowerCase();
     return ['mp3', 'wav', 'm4a', 'aac', 'flac'].contains(ext);
-  }
-
-  bool _isVideoFile(String filePath) {
-    final ext = filePath.split('.').last.toLowerCase();
-    return [
-      'mp4', 'm4v', 'mov', 'mkv', 'avi', 'wmv', 'webm', 'flv', '3gp'
-    ].contains(ext);
   }
 
   // 通用 processing 状态
@@ -186,7 +180,7 @@ class _Video2xPageState extends State<Video2xPage> {
       });
 
       try {
-        if (_isVideoFile(file.path)) {
+        if (isVideoFile(file.path)) {
           await _processVideoAtTempoSilent(file, selectedSpeed);
         } else if (_isAudioFile(file.path)) {
           await _processAudioAtTempoSilent(file, selectedSpeed);
@@ -328,14 +322,14 @@ class _Video2xPageState extends State<Video2xPage> {
   Future<void> _showSpeedDialog(XFile file) async {
     final selectedSpeed = await _showSpeedSelectionDialog(
       title: '选择速度倍数',
-      message: _isVideoFile(file.path)
+      message: isVideoFile(file.path)
           ? '请选择视频播放速度倍数'
           : '请选择音频播放速度倍数',
     );
 
     if (selectedSpeed == null) return;
 
-    if (_isVideoFile(file.path)) {
+    if (isVideoFile(file.path)) {
       await _processVideoAtTempo(file, selectedSpeed);
     } else {
       await _processAudioAtTempo(file, selectedSpeed);
@@ -652,7 +646,7 @@ class _Video2xPageState extends State<Video2xPage> {
                             onPressed: () => _showSpeedDialog(file),
                           ),
                         ],
-                        if (_isVideoFile(file.path)) ...[
+                        if (isVideoFile(file.path)) ...[
                           IconButton(
                             icon: const Icon(Icons.speed),
                             tooltip: '2x',

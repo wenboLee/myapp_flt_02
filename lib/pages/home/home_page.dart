@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:myapp_flt_02/pages/video_2x/video_2x.dart';
+import 'package:myapp_flt_02/pages/video_capture/video_capture.dart';
 import 'package:myapp_flt_02/pages/video_merge/video_merge.dart';
 
 class HomePage extends StatefulWidget {
@@ -48,7 +49,7 @@ class _HomePageState extends State<HomePage> {
         children: const [
           VideoMergePage(),
           Video2xPage(),
-          _EmptyTab(label: ''),
+          VideoCaptureWidget(),
           _EmptyTab(label: ''),
           _EmptyTab(label: ''),
         ],
@@ -66,7 +67,10 @@ class _HomePageState extends State<HomePage> {
             icon: Icon(Icons.slow_motion_video),
             label: 'video_2x',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.circle_outlined), label: ''),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.photo_camera_outlined),
+            label: 'capture',
+          ),
           BottomNavigationBarItem(icon: Icon(Icons.circle_outlined), label: ''),
           BottomNavigationBarItem(icon: Icon(Icons.circle_outlined), label: ''),
         ],
