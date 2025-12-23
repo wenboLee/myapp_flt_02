@@ -1,12 +1,13 @@
-import 'dart:io';
-
-import 'package:cross_file/cross_file.dart';
-import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as path;
-import 'package:process_run/shell.dart';
 import 'package:myapp_flt_02/pages/video_merge/drop_zone_widget.dart';
+import 'package:myapp_flt_02/utils/ffmpeg_helper.dart';
+import 'package:myapp_flt_02/utils/media_file_utils.dart';
+import 'package:myapp_flt_02/utils/mixins/file_drop_mixin.dart';
+import 'package:myapp_flt_02/widgets/empty_file_list.dart';
+import 'package:myapp_flt_02/widgets/file_list_item.dart';
+import 'package:myapp_flt_02/widgets/loading_dialog.dart';
+import 'package:path/path.dart' as path;
 
 class VideoMergePage extends StatefulWidget {
   const VideoMergePage({super.key});
@@ -15,91 +16,9 @@ class VideoMergePage extends StatefulWidget {
   State<VideoMergePage> createState() => _VideoMergePageState();
 }
 
-class _VideoMergePageState extends State<VideoMergePage> {
-  final List<XFile> _files = [];
-  bool _isDragging = false;
-
-  void _onDragEntered() {
-    setState(() {
-      _isDragging = true;
-    });
-  }
-
-  void _onDragExited() {
-    setState(() {
-      _isDragging = false;
-    });
-  }
-
-  void _onDragDone(DropDoneDetails details) {
-    setState(() {
-      _isDragging = false;
-      _files.addAll(details.files);
-    });
-  }
-
-  void _clearFiles() {
-    setState(() {
-      _files.clear();
-    });
-  }
-
-  void _removeFile(int index) {
-    setState(() {
-      _files.removeAt(index);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('视频合并'),
-      ),
-      body: Column(
-        children: [
-          VideoDropZone(
-            isDragging: _isDragging,
-            onDragEntered: _onDragEntered,
-            onDragExited: _onDragExited,
-            onDragDone: _onDragDone,
-          ),
-          if (_files.isNotEmpty) _buildActionBar(),
-          _buildFileList(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Row(
-        children: [
-          ElevatedButton.icon(
-            onPressed: _mergeVideos,
-            icon: const Icon(Icons.video_library),
-            label: const Text('合并视频'),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            ),
-          ),
-          const SizedBox(width: 12),
-          OutlinedButton.icon(
-            onPressed: _files.isNotEmpty ? _clearFiles : null,
-            icon: const Icon(Icons.delete),
-            label: const Text('清空'),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _isVideoFile(String filePath) {
+class _VideoMergePageState extends State<VideoMergePage> with FileDropMixin {
+  /// Check if file is a mergeable video/audio file.
+  bool _isMergeableFile(String filePath) {
     final extension = filePath.split('.').last.toLowerCase();
     return [
       'mp4',
@@ -116,12 +35,13 @@ class _VideoMergePageState extends State<VideoMergePage> {
   }
 
   Future<void> _mergeVideos() async {
-    if (_files.isEmpty) {
+    if (files.isEmpty) {
       return;
     }
 
-    // 过滤出视频文件
-    final videoFiles = _files.where((file) => _isVideoFile(file.path)).toList();
+    // Filter video files
+    final videoFiles =
+        files.where((file) => _isMergeableFile(file.path)).toList();
 
     if (videoFiles.isEmpty) {
       if (!mounted) return;
@@ -145,13 +65,13 @@ class _VideoMergePageState extends State<VideoMergePage> {
       return;
     }
 
-    // 从第一个视频文件获取文件名
+    // Generate default output filename
     final firstVideoFileName = path.basenameWithoutExtension(
       videoFiles[0].path,
     );
     final defaultOutputFileName = '$firstVideoFileName-merged.mp4';
 
-    // 选择输出文件路径
+    // Select output file path
     String? outputPath;
     try {
       outputPath = await FilePicker.platform.saveFile(
@@ -172,19 +92,21 @@ class _VideoMergePageState extends State<VideoMergePage> {
     }
 
     if (outputPath == null) {
-      // 用户取消了保存
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('取消了'), duration: const Duration(seconds: 3)),
+        const SnackBar(
+          content: Text('取消了'),
+          duration: Duration(seconds: 3),
+        ),
       );
       return;
     }
 
-    // 将 outputPath 赋值给非空变量
     final String outputFilePath = outputPath;
 
-    // 检查 ffmpeg 是否安装
+    // Check ffmpeg availability
     if (!mounted) return;
-    final hasFFmpeg = await _checkFFmpegInstalled();
+    final hasFFmpeg = await FFmpegHelper.isFFmpegAvailable();
     if (!hasFFmpeg) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -196,23 +118,25 @@ class _VideoMergePageState extends State<VideoMergePage> {
       return;
     }
 
-    // 显示合并进度
+    // Show merging dialog
     if (!mounted) return;
-    _showMergingDialog();
+    final closeDialog = showLoadingDialog(
+      context,
+      message: '正在合并视频...',
+      useSimpleIndicator: true,
+    );
 
     try {
-      // 执行 ffmpeg 命令
+      // Execute ffmpeg command
       final inputFile1 = videoFiles[0].path;
       final inputFile2 = videoFiles[1].path;
 
-      final shell = Shell();
-      await shell.run(
-        'ffmpeg -i "$inputFile1" -i "$inputFile2" -c copy "$outputFilePath"',
+      await FFmpegHelper.runFFmpegShell(
+        '-i "$inputFile1" -i "$inputFile2" -c copy "$outputFilePath"',
       );
 
-      // 合并成功
       if (!mounted) return;
-      Navigator.of(context).pop(); // 关闭进度对话框
+      closeDialog();
 
       final fileName = path.basename(outputFilePath);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -221,13 +145,13 @@ class _VideoMergePageState extends State<VideoMergePage> {
           duration: const Duration(seconds: 3),
           action: SnackBarAction(
             label: '打开文件夹',
-            onPressed: () => _openFileLocation(outputFilePath),
+            onPressed: () => openFileLocation(outputFilePath),
           ),
         ),
       );
     } catch (e) {
       if (!mounted) return;
-      Navigator.of(context).pop(); // 关闭进度对话框
+      closeDialog();
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -238,66 +162,58 @@ class _VideoMergePageState extends State<VideoMergePage> {
     }
   }
 
-  Future<bool> _checkFFmpegInstalled() async {
-    try {
-      final shell = Shell();
-      await shell.run('ffmpeg -version');
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  void _showMergingDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('正在合并视频...'),
-          ],
-        ),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: const Text('视频合并'),
+      ),
+      body: Column(
+        children: [
+          VideoDropZone(
+            isDragging: isDragging,
+            onDragEntered: onDragEntered,
+            onDragExited: onDragExited,
+            onDragDone: onDragDone,
+          ),
+          if (hasFiles) _buildActionBar(),
+          _buildFileList(),
+        ],
       ),
     );
   }
 
-  void _openFileLocation(String filePath) {
-    final directory = path.dirname(filePath);
-
-    try {
-      if (Platform.isWindows) {
-        Process.run('explorer', [directory]);
-      } else if (Platform.isMacOS) {
-        Process.run('open', [directory]);
-      } else if (Platform.isLinux) {
-        Process.run('xdg-open', [directory]);
-      }
-    } catch (e) {
-      // 忽略错误
-    }
+  Widget _buildActionBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      child: Row(
+        children: [
+          ElevatedButton.icon(
+            onPressed: _mergeVideos,
+            icon: const Icon(Icons.video_library),
+            label: const Text('合并视频'),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: hasFiles ? clearFiles : null,
+            icon: const Icon(Icons.delete),
+            label: const Text('清空'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildFileList() {
-    if (_files.isEmpty) {
-      return Expanded(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.folder_open, size: 64, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              Text(
-                '暂无文件',
-                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        ),
-      );
+    if (!hasFiles) {
+      return const Expanded(child: EmptyFileList());
     }
 
     return Expanded(
@@ -307,7 +223,7 @@ class _VideoMergePageState extends State<VideoMergePage> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Text(
-              '已添加 ${_files.length} 个文件',
+              '已添加 $fileCount 个文件',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -318,96 +234,16 @@ class _VideoMergePageState extends State<VideoMergePage> {
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: _files.length,
+              itemCount: fileCount,
               itemBuilder: (context, index) {
-                return _FileListItem(
-                  file: _files[index],
-                  index: index,
-                  onRemove: () => _removeFile(index),
+                return FileListItem(
+                  file: files[index],
+                  onRemove: () => removeFile(index),
                 );
               },
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _FileListItem extends StatelessWidget {
-  const _FileListItem({
-    required this.file,
-    required this.index,
-    required this.onRemove,
-  });
-
-  final XFile file;
-  final int index;
-  final VoidCallback onRemove;
-
-  String _getFileName(String path) {
-    return path.split('/').last.split('\\').last;
-  }
-
-  IconData _getFileIcon(String fileName) {
-    final extension = fileName.split('.').last.toLowerCase();
-    switch (extension) {
-      case 'pdf':
-        return Icons.picture_as_pdf;
-      case 'doc':
-      case 'docx':
-        return Icons.description;
-      case 'xls':
-      case 'xlsx':
-        return Icons.table_chart;
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-        return Icons.image;
-      case 'mp4':
-      case 'avi':
-      case 'mov':
-        return Icons.video_file;
-      case 'mp3':
-      case 'wav':
-        return Icons.audio_file;
-      case 'zip':
-      case 'rar':
-        return Icons.folder_zip;
-      case 'txt':
-        return Icons.text_snippet;
-      default:
-        return Icons.insert_drive_file;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fileName = _getFileName(file.path);
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: Icon(
-          _getFileIcon(fileName),
-          color: Theme.of(context).colorScheme.primary,
-        ),
-        title: Text(
-          fileName,
-          style: const TextStyle(fontWeight: FontWeight.w500),
-        ),
-        subtitle: Text(
-          file.path,
-          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: onRemove,
-          tooltip: '移除',
-        ),
       ),
     );
   }
