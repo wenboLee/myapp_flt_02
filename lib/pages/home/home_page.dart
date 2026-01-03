@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:myapp_flt_02/pages/video_2x/video_2x.dart';
 import 'package:myapp_flt_02/pages/video_capture/video_capture.dart';
+import 'package:myapp_flt_02/pages/video_main/video_main_page.dart';
 import 'package:myapp_flt_02/pages/video_merge/video_merge.dart';
 
 class HomePage extends StatefulWidget {
@@ -12,7 +13,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   late final PageController _pageController;
-  int _currentIndex = 1;
+  int _currentIndex = 2;
 
   @override
   void initState() {
@@ -33,11 +34,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _onBottomNavTapped(int index) {
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    _pageController.animateToPage(index, duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
   }
 
   @override
@@ -49,8 +46,8 @@ class _HomePageState extends State<HomePage> {
         children: const [
           VideoMergePage(),
           Video2xPage(),
+          VideoMainPage(),
           VideoCaptureWidget(),
-          _EmptyTab(label: ''),
           _EmptyTab(label: ''),
         ],
       ),
@@ -59,19 +56,10 @@ class _HomePageState extends State<HomePage> {
         type: BottomNavigationBarType.fixed,
         onTap: _onBottomNavTapped,
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.video_library),
-            label: 'video_merge',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.slow_motion_video),
-            label: 'video_2x',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.photo_camera_outlined),
-            label: 'capture',
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.circle_outlined), label: ''),
+          BottomNavigationBarItem(icon: Icon(Icons.video_library), label: 'video_merge'),
+          BottomNavigationBarItem(icon: Icon(Icons.slow_motion_video), label: 'video_2x'),
+          BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'main'),
+          BottomNavigationBarItem(icon: Icon(Icons.photo_camera_outlined), label: 'capture'),
           BottomNavigationBarItem(icon: Icon(Icons.circle_outlined), label: ''),
         ],
       ),

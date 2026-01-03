@@ -88,3 +88,56 @@ VoidCallback showLoadingDialog(
   };
 }
 
+/// Controller returned by [showProgressDialog] to allow updating the message
+/// and closing the dialog.
+class ProgressDialogController {
+  final VoidCallback close;
+  final void Function(String) update;
+
+  ProgressDialogController({required this.close, required this.update});
+}
+
+/// Shows a dialog whose message can be updated after it's shown.
+/// Returns a [ProgressDialogController] which can be used to update the
+/// displayed message and to close the dialog.
+ProgressDialogController showProgressDialog(
+  BuildContext context, {
+  String initialMessage = '请稍候...',
+  bool barrierDismissible = false,
+  bool useSimpleIndicator = false,
+}) {
+  final notifier = ValueNotifier<String>(initialMessage);
+
+  showDialog(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    builder: (context) => ValueListenableBuilder<String>(
+      valueListenable: notifier,
+      builder: (context, message, child) => LoadingDialog(
+        message: message,
+        useSimpleIndicator: useSimpleIndicator,
+      ),
+    ),
+  );
+
+  void close() {
+    try {
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    } finally {
+      try {
+        notifier.dispose();
+      } catch (_) {}
+    }
+  }
+
+  void update(String message) {
+    try {
+      notifier.value = message;
+    } catch (_) {}
+  }
+
+  return ProgressDialogController(close: close, update: update);
+}
+
