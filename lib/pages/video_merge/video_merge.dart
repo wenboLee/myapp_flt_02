@@ -1,4 +1,4 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:myapp_flt_02/pages/video_merge/drop_zone_widget.dart';
 import 'package:myapp_flt_02/utils/ffmpeg_helper.dart';
@@ -71,38 +71,34 @@ class _VideoMergePageState extends State<VideoMergePage> with FileDropMixin {
     );
     final defaultOutputFileName = '$firstVideoFileName-merged.mp4';
 
-    // Select output file path
-    String? outputPath;
-    try {
-      outputPath = await FilePicker.platform.saveFile(
-        dialogTitle: '选择输出文件位置',
-        fileName: defaultOutputFileName,
-        type: FileType.custom,
-        allowedExtensions: ['mp4'],
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('文件选择器错误：${e.toString()}'),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-      return;
+    // Select output file path: save directly to user's Downloads directory with a unique filename
+    Future<String> _getDownloadsDirectory() async {
+      String dir;
+      if (Platform.isWindows) {
+        dir = path.join(Platform.environment['USERPROFILE'] ?? '', 'Downloads');
+      } else {
+        dir = path.join(Platform.environment['HOME'] ?? '', 'Downloads');
+      }
+      if (dir.isEmpty) {
+        dir = Directory.current.path;
+      }
+      return dir;
     }
 
-    if (outputPath == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('取消了'),
-          duration: Duration(seconds: 3),
-        ),
-      );
-      return;
+    Future<String> _generateUniqueOutputFilePath(String filename) async {
+      final dir = await _getDownloadsDirectory();
+      String candidate = path.join(dir, filename);
+      final base = path.basenameWithoutExtension(filename);
+      final ext = path.extension(filename);
+      int i = 1;
+      while (await File(candidate).exists()) {
+        candidate = path.join(dir, '${base}_$i$ext');
+        i++;
+      }
+      return candidate;
     }
 
-    final String outputFilePath = outputPath;
+    final String outputFilePath = await _generateUniqueOutputFilePath(defaultOutputFileName);
 
     // Check ffmpeg availability
     if (!mounted) return;
