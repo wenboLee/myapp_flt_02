@@ -24,7 +24,7 @@ class VideoMainPage extends StatefulWidget {
   const VideoMainPage({
     super.key,
     this.initialText,
-    this.initialSpeed = 2.0,
+    this.initialSpeed = 1.8,
     this.speedOptions,
   });
 
@@ -113,7 +113,7 @@ class _VideoMainPageState extends State<VideoMainPage> {
                   content: Text('[$i/${total - 1}] 下载完成：$fileName'),
                   action: SnackBarAction(
                     label: '打开文件夹',
-                    onPressed: () => openFileLocation(downloadedPath!),
+                    onPressed: () => openFileLocation(downloadedPath),
                   ),
                 ),
               );
@@ -142,6 +142,90 @@ class _VideoMainPageState extends State<VideoMainPage> {
 
       // Close loading dialog
       closeDialog();
+    } finally {
+      _setWorking(false);
+      try {
+        if (Navigator.of(context, rootNavigator: true).canPop()) {
+          Navigator.of(context, rootNavigator: true).pop();
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _handleDownloadVideo() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+
+    final urls = text
+        .split(RegExp(r'\r?\n'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    if (urls.isEmpty) return;
+
+    _setWorking(true);
+
+    final progress = showProgressDialog(
+      context,
+      initialMessage: urls.length == 1
+          ? '正在下载视频...'
+          : '正在下载 ${urls.length} 个视频，请稍候...',
+      barrierDismissible: false,
+    );
+
+    try {
+      final int total = urls.length;
+
+      for (int i = 0; i < total; i++) {
+        final url = urls[i];
+        final current = i + 1;
+
+        try {
+          progress.update('[$current/$total] 正在下载视频...');
+          final downloadedPath = await downloadVideoToDirectory(url);
+
+          if (!mounted) return;
+
+          if (downloadedPath != null) {
+            final fileName = path.basename(downloadedPath);
+            progress.update('[$current/$total] 完成：$fileName');
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('[$current/$total] 视频下载完成：$fileName'),
+                action: SnackBarAction(
+                  label: '打开文件夹',
+                  onPressed: () => openFileLocation(downloadedPath),
+                ),
+              ),
+            );
+
+            // System notification
+            try {
+              final id = DateTime.now().millisecondsSinceEpoch.remainder(1 << 31);
+              Notifications.showNotification(
+                id: id,
+                title: '视频下载完成',
+                body: fileName,
+              );
+            } catch (_) {}
+          } else {
+            progress.update('[$current/$total] 下载完成，但未能确定输出文件路径');
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('[$current/$total] 视频下载完成，但未能确定输出文件路径')),
+            );
+          }
+        } catch (e) {
+          progress.update('[$current/$total] 失败：${e.toString()}');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('视频下载失败（$url）：${e.toString()}')),
+          );
+        }
+      }
+
+      // Close loading dialog
+      progress.close();
     } finally {
       _setWorking(false);
       try {
@@ -350,6 +434,7 @@ class _VideoMainPageState extends State<VideoMainPage> {
             ),
             const SizedBox(height: 8),
             Row(
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 const Text('倍速：'),
                 const SizedBox(width: 8),
@@ -386,13 +471,18 @@ class _VideoMainPageState extends State<VideoMainPage> {
                     return Row(
                       children: [
                         ElevatedButton(
-                          onPressed: (! _isWorking && canSubmit) ? _handleDownload : null,
-                          child: const Text('下载'),
+                          onPressed: (!_isWorking && canSubmit) ? _handleDownload : null,
+                          child: const Text('下载音频'),
                         ),
                         const SizedBox(width: 8),
                         ElevatedButton(
-                          onPressed: (! _isWorking && canSubmit) ? _handleDownloadAndProcess : null,
+                          onPressed: (!_isWorking && canSubmit) ? _handleDownloadAndProcess : null,
                           child: const Text('下载并处理'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: (!_isWorking && canSubmit) ? _handleDownloadVideo : null,
+                          child: const Text('下载视频'),
                         ),
                       ],
                     );

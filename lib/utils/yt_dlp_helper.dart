@@ -40,6 +40,7 @@ Future<String?> downloadAudioToDirectory(
   final outputTemplate = path.join(dir, '%(title)s.%(ext)s');
 
   final args = [
+    '--no-playlist',
     '-f', 'ba',
     '--extract-audio',
     '--audio-format', audioFormat,
@@ -62,6 +63,54 @@ Future<String?> downloadAudioToDirectory(
 
   // Fallback: find most recently modified file with requested extension
   final ext = '.${audioFormat.toLowerCase()}';
+  final dirList = Directory(dir)
+      .listSync()
+      .whereType<File>()
+      .where((f) => f.path.toLowerCase().endsWith(ext))
+      .toList();
+
+  if (dirList.isNotEmpty) {
+    dirList.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+    return dirList.first.path;
+  }
+
+  return null;
+}
+
+/// Download video for [url] into [outDir] or into the system Downloads directory.
+/// Returns the absolute path to the downloaded file if it can be determined, or null.
+Future<String?> downloadVideoToDirectory(
+  String url, {
+  String? outDir,
+  String videoFormat = 'mp4',
+}) async {
+  final dir = outDir ?? await getDownloadsDirectory();
+
+  final outputTemplate = path.join(dir, '%(title)s.%(ext)s');
+
+  final args = [
+    '--no-playlist',
+    '-f', 'bestvideo[ext=$videoFormat]+bestaudio/best[ext=$videoFormat]/best',
+    '--merge-output-format', videoFormat,
+    '-o', outputTemplate,
+    url,
+  ];
+
+  final result = await runYtDlp(args);
+
+  if (result.exitCode != 0) {
+    throw YtDlpException('yt-dlp exited with non-zero code',
+        exitCode: result.exitCode, stdout: result.stdout?.toString(), stderr: result.stderr?.toString());
+  }
+
+  final out = (result.stdout ?? '').toString();
+
+  // Try parse Destination line
+  final destMatch = _parseDestinationFromOutput(out);
+  if (destMatch != null) return destMatch;
+
+  // Fallback: find most recently modified file with requested extension
+  final ext = '.${videoFormat.toLowerCase()}';
   final dirList = Directory(dir)
       .listSync()
       .whereType<File>()
