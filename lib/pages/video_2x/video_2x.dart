@@ -1,14 +1,15 @@
 import 'package:cross_file/cross_file.dart';
 import 'package:flutter/material.dart';
 import 'package:myapp_flt_02/pages/video_merge/drop_zone_widget.dart';
-import 'package:myapp_flt_02/utils/ffmpeg_helper.dart';
-import 'package:myapp_flt_02/utils/media_file_utils.dart';
-import 'package:myapp_flt_02/utils/mixins/file_drop_mixin.dart';
-import 'package:myapp_flt_02/utils/mixins/processing_mixin.dart';
-import 'package:myapp_flt_02/widgets/empty_file_list.dart';
-import 'package:myapp_flt_02/widgets/file_list_item.dart';
-import 'package:myapp_flt_02/widgets/processing_overlay.dart';
-import 'package:myapp_flt_02/widgets/slider_selection_dialog.dart';
+import 'package:myapp_flt_02/utils/video_ffmpeg_helper.dart';
+import 'package:myapp_flt_02/utils/video_ffmpeg_processor.dart';
+import 'package:myapp_flt_02/utils/video_media_utils.dart';
+import 'package:myapp_flt_02/utils/mixins/video_file_drop_mixin.dart';
+import 'package:myapp_flt_02/utils/mixins/video_processing_mixin.dart';
+import 'package:myapp_flt_02/utils/notification_helper.dart';
+import 'package:myapp_flt_02/widgets/video_file_list_section.dart';
+import 'package:myapp_flt_02/widgets/video_processing_overlay.dart';
+import 'package:myapp_flt_02/widgets/video_speed_dialog.dart';
 import 'package:path/path.dart' as path;
 
 class Video2xPage extends StatefulWidget {
@@ -64,10 +65,7 @@ class _Video2xPageState extends State<Video2xPage>
           child: SingleChildScrollView(
             child: SelectableText(
               buffer.toString(),
-              style: const TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 12,
-              ),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             ),
           ),
         ),
@@ -107,36 +105,54 @@ class _Video2xPageState extends State<Video2xPage>
 
       try {
         if (isVideoFile(file.path)) {
-          await _processVideoAtTempoSilent(file, selectedSpeed);
+          await FFmpegProcessor.processVideoAtTempoSilent(
+            file.path,
+            selectedSpeed,
+          );
+          NotificationHelper.showBatchItemComplete(
+            fileName: path.basename(file.path),
+            current: i + 1,
+            total: files.length,
+          );
         } else if (isAudioFile(file.path)) {
-          await _processAudioAtTempoSilent(file, selectedSpeed);
+          await FFmpegProcessor.processAudioAtTempoSilent(
+            file.path,
+            selectedSpeed,
+          );
+          NotificationHelper.showBatchItemComplete(
+            fileName: path.basename(file.path),
+            current: i + 1,
+            total: files.length,
+          );
         } else {
           continue;
         }
         successCount++;
       } catch (e) {
+        NotificationHelper.showBatchItemFailed(
+          fileName: path.basename(file.path),
+          current: i + 1,
+          total: files.length,
+        );
         failCount++;
       }
     }
 
     stopProcessing();
 
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('批处理完成：成功 $successCount 个，失败 $failCount 个'),
-        duration: const Duration(seconds: 3),
-      ),
+    NotificationHelper.showBatchComplete(
+      context,
+      successCount: successCount,
+      failCount: failCount,
     );
   }
 
-  Future<void> _showSpeedDialog(XFile file) async {
+  Future<void> _showSpeedDialog(XFile file, {double defaultSpeed = 2.0}) async {
     final selectedSpeed = await showSliderSelectionDialog(
       context,
       title: '选择速度倍数',
       message: isVideoFile(file.path) ? '请选择视频播放速度倍数' : '请选择音频播放速度倍数',
-      config: speedSliderConfig(),
+      config: speedSliderConfig(initialValue: defaultSpeed),
     );
 
     if (selectedSpeed == null) return;
@@ -148,162 +164,46 @@ class _Video2xPageState extends State<Video2xPage>
     }
   }
 
-  Future<void> _processAudioAtTempoSilent(XFile file, double tempo) async {
-    final inputPath = file.path;
-    final dir = path.dirname(inputPath);
-    final baseName = path.basenameWithoutExtension(inputPath);
-    final suffix = '${tempo.toStringAsFixed(1)}x';
-    final outputPath = path.join(dir, '$baseName-$suffix.m4a');
-
-    final hasFFmpeg = await FFmpegHelper.isFFmpegAvailable();
-    if (!hasFFmpeg) {
-      throw Exception('未检测到 ffmpeg');
-    }
-
-    final filter = _buildAtempoFilter(tempo);
-    await FFmpegHelper.runFFmpegShell(
-      '-i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
-    );
-  }
-
-  Future<void> _processVideoAtTempoSilent(XFile file, double tempo) async {
-    final inputPath = file.path;
-    final dir = path.dirname(inputPath);
-    final baseName = path.basenameWithoutExtension(inputPath);
-    final ext = path.extension(inputPath);
-    final suffix = '${tempo.toStringAsFixed(1)}x';
-    final outputPath = path.join(dir, '$baseName-$suffix$ext');
-
-    final hasFFmpeg = await FFmpegHelper.isFFmpegAvailable();
-    if (!hasFFmpeg) {
-      throw Exception('未检测到 ffmpeg');
-    }
-
-    final aFilter = _buildAtempoFilter(tempo);
-    final vFactor = (1.0 / tempo).toStringAsFixed(6);
-    await FFmpegHelper.runFFmpegShell(
-      '-i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
-    );
-  }
-
-  String _buildAtempoFilter(double tempo) {
-    // atempo accepts values in [0.5, 2.0]. For tempo > 2.0 we chain filters.
-    if (tempo <= 2.0 && tempo >= 0.5) {
-      return 'atempo=$tempo';
-    }
-
-    // For >2.0, split into factors <=2.0 (greedy)
-    final factors = <double>[];
-    double remaining = tempo;
-    while (remaining > 2.0) {
-      factors.add(2.0);
-      remaining = remaining / 2.0;
-    }
-    // remaining now <=2.0
-    if (remaining >= 0.5) {
-      factors.add(remaining);
-    }
-
-    return factors
-        .map(
-          (f) =>
-              'atempo=${f.toStringAsFixed(f == (f).roundToDouble() ? 0 : 2)}',
-        )
-        .join(',');
-  }
-
   Future<void> _processAudioAtTempo(XFile file, double tempo) async {
-    final inputPath = file.path;
-    final dir = path.dirname(inputPath);
-    final baseName = path.basenameWithoutExtension(inputPath);
-    final suffix = '${tempo.toStringAsFixed(1)}x';
-    final outputPath = path.join(dir, '$baseName-$suffix.m4a');
+    startProcessing('正在生成 ${tempo.toStringAsFixed(1)}x 音频...');
 
-    final hasFFmpeg = await FFmpegHelper.isFFmpegAvailable();
-    if (!hasFFmpeg) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg 或确保应用已打包 ffmpeg')),
-      );
-      return;
-    }
-
-    if (!mounted) return;
-    startProcessing('正在生成 $suffix 音频...');
-
-    try {
-      final filter = _buildAtempoFilter(tempo);
-      await FFmpegHelper.runFFmpegShell(
-        '-i "$inputPath" -filter:a "$filter" -c:a aac "$outputPath"',
-      );
-
-      if (!mounted) return;
-      stopProcessing();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('生成成功：${path.basename(outputPath)}'),
-          action: SnackBarAction(
-            label: '打开文件夹',
-            onPressed: () => openFileLocation(outputPath),
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      stopProcessing();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('处理失败：${e.toString()}')),
-      );
-    }
+    await FFmpegProcessor.processAudioAtTempo(
+      file.path,
+      tempo,
+      onSuccess: (outputPath) {
+        stopProcessing();
+        NotificationHelper.showSuccess(
+          context,
+          message: '生成成功：${path.basename(outputPath)}',
+          filePath: outputPath,
+        );
+      },
+      onError: (error) {
+        stopProcessing();
+        NotificationHelper.showError(context, message: '处理失败', error: error);
+      },
+    );
   }
 
   Future<void> _processVideoAtTempo(XFile file, double tempo) async {
-    final inputPath = file.path;
-    final dir = path.dirname(inputPath);
-    final baseName = path.basenameWithoutExtension(inputPath);
-    final ext = path.extension(inputPath);
-    final suffix = '${tempo.toStringAsFixed(1)}x';
-    final outputPath = path.join(dir, '$baseName-$suffix$ext');
+    startProcessing('正在生成 ${tempo.toStringAsFixed(1)}x 视频...');
 
-    final hasFFmpeg = await FFmpegHelper.isFFmpegAvailable();
-    if (!hasFFmpeg) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg 或确保应用已打包 ffmpeg')),
-      );
-      return;
-    }
-
-    if (!mounted) return;
-    startProcessing('正在生成 $suffix 视频...');
-
-    try {
-      final aFilter = _buildAtempoFilter(tempo);
-      final vFactor = (1.0 / tempo).toStringAsFixed(6);
-      await FFmpegHelper.runFFmpegShell(
-        '-i "$inputPath" -filter:v "setpts=${vFactor}*PTS" -filter:a "$aFilter" "$outputPath"',
-      );
-
-      if (!mounted) return;
-      stopProcessing();
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('生成成功：${path.basename(outputPath)}'),
-          action: SnackBarAction(
-            label: '打开文件夹',
-            onPressed: () => openFileLocation(outputPath),
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      stopProcessing();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('处理失败：${e.toString()}')),
-      );
-    }
+    await FFmpegProcessor.processVideoAtTempo(
+      file.path,
+      tempo,
+      onSuccess: (outputPath) {
+        stopProcessing();
+        NotificationHelper.showSuccess(
+          context,
+          message: '生成成功：${path.basename(outputPath)}',
+          filePath: outputPath,
+        );
+      },
+      onError: (error) {
+        stopProcessing();
+        NotificationHelper.showError(context, message: '处理失败', error: error);
+      },
+    );
   }
 
   @override
@@ -336,66 +236,46 @@ class _Video2xPageState extends State<Video2xPage>
                 onDragExited: onDragExited,
                 onDragDone: onDragDone,
               ),
-              _buildFileList(),
+              FileListSection(
+                files: files,
+                onRemoveFile: removeFile,
+                emptyMessage: '拖拽音视频文件到上方区域',
+                headerBuilder: (context) => Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        '已添加 $fileCount 个文件',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[800],
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: isProcessing ? null : _batchProcessAllFiles,
+                        icon: const Icon(Icons.playlist_play, size: 20),
+                        label: const Text('批量处理'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                trailingBuilder: (file) => _buildFileActions(file),
+              ),
             ],
           ),
           if (isProcessing)
             ProcessingOverlay(message: processingMessage ?? '处理中...'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFileList() {
-    if (!hasFiles) {
-      return const Expanded(child: EmptyFileList());
-    }
-
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '已添加 $fileCount 个文件',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[800],
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: isProcessing ? null : _batchProcessAllFiles,
-                  icon: const Icon(Icons.playlist_play, size: 20),
-                  label: const Text('批量处理'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: fileCount,
-              itemBuilder: (context, index) {
-                final file = files[index];
-                return FileListItem(
-                  file: file,
-                  onRemove: () => removeFile(index),
-                  trailing: _buildFileActions(file),
-                );
-              },
-            ),
-          ),
         ],
       ),
     );
@@ -415,9 +295,7 @@ class _Video2xPageState extends State<Video2xPage>
         IconButton(
           icon: const Icon(Icons.speed),
           tooltip: '2x',
-          onPressed: () => isVideo
-              ? _processVideoAtTempo(file, 2.0)
-              : _processAudioAtTempo(file, 2.0),
+          onPressed: () => _showSpeedDialog(file, defaultSpeed: 2.0),
         ),
         IconButton(
           icon: const Icon(Icons.fast_forward),

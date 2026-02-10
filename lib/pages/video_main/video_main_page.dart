@@ -1,14 +1,10 @@
-
-
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as path;
-import 'package:myapp_flt_02/widgets/loading_dialog.dart';
-import 'package:myapp_flt_02/utils/media_file_utils.dart';
-import 'package:myapp_flt_02/utils/ffmpeg_helper.dart';
-import 'package:myapp_flt_02/utils/yt_dlp_helper.dart';
-import 'package:myapp_flt_02/utils/notifications_helper.dart';
+import 'package:myapp_flt_02/utils/video_ffmpeg_helper.dart';
+import 'package:myapp_flt_02/utils/video_ffmpeg_processor.dart';
+import 'package:myapp_flt_02/utils/notification_helper.dart';
+import 'package:myapp_flt_02/utils/video_download_helper.dart';
+import 'package:myapp_flt_02/widgets/video_loading_dialog.dart';
 
 /// 视频主页面的简易输入与下载按钮组件
 class VideoMainPage extends StatefulWidget {
@@ -36,18 +32,13 @@ class _VideoMainPageState extends State<VideoMainPage> {
   late final TextEditingController _controller;
   late final ValueNotifier<bool> _canSubmit;
 
-  // speed selection
   late List<double> _speedOptions;
   late double _selectedSpeed;
-
-  // batch processing flag
   bool _isWorking = false;
 
   void _setWorking(bool v) {
     if (!mounted) return;
-    setState(() {
-      _isWorking = v;
-    });
+    setState(() => _isWorking = v);
   }
 
   @override
@@ -55,11 +46,12 @@ class _VideoMainPageState extends State<VideoMainPage> {
     super.initState();
     _controller = TextEditingController(text: widget.initialText ?? '');
     _canSubmit = ValueNotifier<bool>(_controller.text.trim().isNotEmpty);
-    _controller.addListener(() {
-      _canSubmit.value = _controller.text.trim().isNotEmpty;
-    });
+    _controller.addListener(
+      () => _canSubmit.value = _controller.text.trim().isNotEmpty,
+    );
 
-    _speedOptions = widget.speedOptions ?? [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0, 4.0];
+    _speedOptions =
+        widget.speedOptions ?? [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0, 4.0];
     _selectedSpeed = widget.initialSpeed;
     if (!_speedOptions.contains(_selectedSpeed)) {
       _speedOptions = [..._speedOptions, _selectedSpeed];
@@ -74,20 +66,17 @@ class _VideoMainPageState extends State<VideoMainPage> {
     super.dispose();
   }
 
+  List<String> _parseUrls(String text) => text
+      .split(RegExp(r'\r?\n'))
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+
   Future<void> _handleDownload() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-
-    final urls = text
-        .split(RegExp(r'\r?\n'))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-
+    final urls = _parseUrls(_controller.text.trim());
     if (urls.isEmpty) return;
 
     _setWorking(true);
-
     final closeDialog = showLoadingDialog(
       context,
       message: urls.length == 1
@@ -97,75 +86,45 @@ class _VideoMainPageState extends State<VideoMainPage> {
     );
 
     try {
-      final int total = urls.length;
-
-      for (int i = 0; i < total; i++) {
+      for (int i = 0; i < urls.length; i++) {
         final url = urls[i];
         try {
           final downloadedPath = await downloadAudioToDirectory(url);
-
-          if (!mounted) return;
-
           if (downloadedPath != null) {
-              final fileName = path.basename(downloadedPath);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('[$i/${total - 1}] 下载完成：$fileName'),
-                  action: SnackBarAction(
-                    label: '打开文件夹',
-                    onPressed: () => openFileLocation(downloadedPath!),
-                  ),
-                ),
-              );
-
-              // System notification
-              try {
-                final id = DateTime.now().millisecondsSinceEpoch.remainder(1 << 31);
-                Notifications.showNotification(
-                  id: id,
-                  title: '下载完成',
-                  body: fileName,
-                );
-              } catch (_) {}
-            } else {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('[$i/${total - 1}] 下载完成，但未能确定输出文件路径')),
-              );
-            }
+            NotificationHelper.showDownloadComplete(
+              context,
+              fileName: path.basename(downloadedPath),
+              filePath: downloadedPath,
+              current: i + 1,
+              total: urls.length,
+            );
+          } else {
+            NotificationHelper.showError(
+              context,
+              message: '[$i/${urls.length - 1}] 下载完成，但未能确定输出文件路径',
+            );
+          }
         } catch (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('下载失败（$url）：${e.toString()}')),
+          NotificationHelper.showDownloadFailed(
+            context,
+            url: url,
+            error: e,
+            current: i + 1,
+            total: urls.length,
           );
         }
       }
-
-      // Close loading dialog
       closeDialog();
     } finally {
       _setWorking(false);
-      try {
-        if (Navigator.of(context, rootNavigator: true).canPop()) {
-          Navigator.of(context, rootNavigator: true).pop();
-        }
-      } catch (_) {}
     }
   }
 
   Future<void> _handleDownloadAndProcess() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty) return;
-
-    final urls = text
-        .split(RegExp(r'\r?\n'))
-        .map((s) => s.trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
-
+    final urls = _parseUrls(_controller.text.trim());
     if (urls.isEmpty) return;
 
     _setWorking(true);
-
     final progress = showProgressDialog(
       context,
       initialMessage: urls.length == 1
@@ -175,146 +134,79 @@ class _VideoMainPageState extends State<VideoMainPage> {
     );
 
     try {
-      // Pre-check ffmpeg availability once
-      final hasFFmpeg = await FFmpegHelper.isFFmpegAvailable();
-      if (!hasFFmpeg) {
+      if (!await FFmpegHelper.isFFmpegAvailable()) {
         progress.close();
         _setWorking(false);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未检测到 ffmpeg，请先安装 ffmpeg 或确保应用包含 ffmpeg')),
+        NotificationHelper.showError(
+          context,
+          message: '未检测到 ffmpeg，请先安装 ffmpeg 或确保应用包含 ffmpeg',
         );
         return;
       }
 
-      final int total = urls.length;
-
-      for (int i = 0; i < total; i++) {
-        final url = urls[i];
+      for (int i = 0; i < urls.length; i++) {
         final current = i + 1;
-
         try {
-          progress.update('[$current/$total] 正在下载...');
-          final downloadedPath = await downloadAudioToDirectory(url);
-
+          progress.update('[$current/${urls.length}] 正在下载...');
+          final downloadedPath = await downloadAudioToDirectory(urls[i]);
           if (downloadedPath == null) {
-            progress.update('[$current/$total] 下载完成，但无法定位下载文件进行处理');
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('[$current/$total] 下载成功，但无法定位下载文件进行处理')),
+            NotificationHelper.showError(
+              context,
+              message: '[$current/${urls.length}] 下载成功，但无法定位下载文件进行处理',
             );
             continue;
           }
-
-          progress.update('[$current/$total] 下载完成，开始处理...');
-
-          final inputPath = downloadedPath;
-          final dirPath = path.dirname(inputPath);
-          final baseName = path.basenameWithoutExtension(inputPath);
-          final suffix = _selectedSpeed.toStringAsFixed(1);
-          final outputPath = path.join(dirPath, '$baseName-${suffix}x.m4a');
-
-          // Build atempo filter for arbitrary speed
-          final aFilter = _buildAtempoFilter(_selectedSpeed);
-
-          // Run ffmpeg to speed up audio
-          await FFmpegHelper.runFFmpegShell(
-            '-i "$inputPath" -filter:a "$aFilter" -c:a aac "$outputPath"',
+          progress.update('[$current/${urls.length}] 下载完成，开始处理...');
+          final outputPath = await FFmpegProcessor.processDownloadedAudio(
+            downloadedPath,
+            _selectedSpeed,
           );
-
-          // 如果输出存在，尝试删除原始输入文件，仅在处理成功后删除
-          try {
-            final outFile = File(outputPath);
-            if (await outFile.exists()) {
-              try {
-                final inputFile = File(inputPath);
-                if (await inputFile.exists()) {
-                  await inputFile.delete();
-                }
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('已处理 $baseName，但删除原始文件失败：${e.toString()}')),
-                );
-              }
-            } else {
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('处理完成但找不到输出文件，原始文件保留：$inputPath')),
+          if (outputPath != null) {
+            try {
+              await FFmpegProcessor.deleteSourceIfOutputExists(
+                downloadedPath,
+                outputPath,
+              );
+            } catch (e) {
+              NotificationHelper.showError(
+                context,
+                message:
+                    '已处理 ${path.basenameWithoutExtension(downloadedPath)}，但删除原始文件失败',
+                error: e,
               );
             }
-          } catch (_) {
-            // 忽略检查错误
-          }
-
-          final outName = path.basename(outputPath);
-          progress.update('[$current/$total] 完成：$outName');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('[$current/$total] 下载并处理完成：$outName'),
-              action: SnackBarAction(
-                label: '打开文件夹',
-                onPressed: () => openFileLocation(outputPath),
-              ),
-            ),
-          );
-
-          // System notification
-          try {
-            final id = DateTime.now().millisecondsSinceEpoch.remainder(1 << 31);
-            Notifications.showNotification(
-              id: id,
-              title: '下载并处理完成',
-              body: outName,
+            progress.update(
+              '[$current/${urls.length}] 完成：${path.basename(outputPath)}',
             );
-          } catch (_) {}
+            NotificationHelper.showDownloadAndProcessComplete(
+              context,
+              fileName: path.basename(outputPath),
+              filePath: outputPath,
+              current: current,
+              total: urls.length,
+            );
+          }
         } catch (e) {
-          progress.update('[$current/$total] 失败：${e.toString()}');
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('下载并处理失败（$url）：${e.toString()}')),
+          progress.update('[$current/${urls.length}] 失败：${e.toString()}');
+          NotificationHelper.showDownloadFailed(
+            context,
+            url: urls[i],
+            error: e,
+            current: current,
+            total: urls.length,
           );
         }
       }
-
-      // Close loading dialog
       progress.close();
     } finally {
       _setWorking(false);
-      try {
-        if (Navigator.of(context, rootNavigator: true).canPop()) {
-          Navigator.of(context, rootNavigator: true).pop();
-        }
-      } catch (_) {}
     }
-  }
-
-  String _buildAtempoFilter(double tempo) {
-    if (tempo <= 2.0 && tempo >= 0.5) {
-      return 'atempo=$tempo';
-    }
-
-    final factors = <double>[];
-    double remaining = tempo;
-    while (remaining > 2.0) {
-      factors.add(2.0);
-      remaining = remaining / 2.0;
-    }
-    if (remaining >= 0.5) {
-      factors.add(remaining);
-    }
-
-    return factors
-        .map((f) => 'atempo=${f.toStringAsFixed(f == f.roundToDouble() ? 0 : 2)}')
-        .join(',');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('视频下载&加速'),
-      ),
+      appBar: AppBar(title: const Text('视频下载&加速')),
       body: Padding(
         padding: const EdgeInsets.all(8.0),
         child: Column(
@@ -324,28 +216,26 @@ class _VideoMainPageState extends State<VideoMainPage> {
               height: 100,
               child: ValueListenableBuilder<bool>(
                 valueListenable: _canSubmit,
-                builder: (context, hasText, child) {
-                  return TextField(
-                    controller: _controller,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      border: const OutlineInputBorder(),
-                      hintText: '请输入 url 或文本（最多 3 行）',
-                      suffixIcon: hasText
-                          ? IconButton(
-                              icon: const Icon(Icons.clear),
-                              tooltip: '清除',
-                              onPressed: _isWorking
-                                  ? null
-                                  : () {
-                                      _controller.clear();
-                                      _canSubmit.value = false;
-                                    },
-                            )
-                          : null,
-                    ),
-                  );
-                },
+                builder: (context, hasText, child) => TextField(
+                  controller: _controller,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    border: const OutlineInputBorder(),
+                    hintText: '请输入 url 或文本（最多 3 行）',
+                    suffixIcon: hasText
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            tooltip: '清除',
+                            onPressed: _isWorking
+                                ? null
+                                : () {
+                                    _controller.clear();
+                                    _canSubmit.value = false;
+                                  },
+                          )
+                        : null,
+                  ),
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -366,14 +256,10 @@ class _VideoMainPageState extends State<VideoMainPage> {
                   onChanged: _isWorking
                       ? null
                       : (v) {
-                          if (v == null) return;
-                          setState(() {
-                            _selectedSpeed = v;
-                          });
+                          if (v != null) setState(() => _selectedSpeed = v);
                         },
                 ),
                 const Spacer(),
-                const SizedBox(width: 8),
               ],
             ),
             const SizedBox(height: 8),
@@ -382,21 +268,23 @@ class _VideoMainPageState extends State<VideoMainPage> {
               children: [
                 ValueListenableBuilder<bool>(
                   valueListenable: _canSubmit,
-                  builder: (context, canSubmit, child) {
-                    return Row(
-                      children: [
-                        ElevatedButton(
-                          onPressed: (! _isWorking && canSubmit) ? _handleDownload : null,
-                          child: const Text('下载'),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: (! _isWorking && canSubmit) ? _handleDownloadAndProcess : null,
-                          child: const Text('下载并处理'),
-                        ),
-                      ],
-                    );
-                  },
+                  builder: (context, canSubmit, child) => Row(
+                    children: [
+                      ElevatedButton(
+                        onPressed: (!_isWorking && canSubmit)
+                            ? _handleDownload
+                            : null,
+                        child: const Text('下载'),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: (!_isWorking && canSubmit)
+                            ? _handleDownloadAndProcess
+                            : null,
+                        child: const Text('下载并处理'),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

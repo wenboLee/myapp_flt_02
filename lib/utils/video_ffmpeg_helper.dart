@@ -8,7 +8,7 @@ class FFmpegHelper {
   static String? _cachedFFmpegPath;
 
   /// 获取 ffmpeg 可执行文件路径
-  /// 
+  ///
   /// 优先级：
   /// 1. 应用内打包的 ffmpeg (macOS: Contents/Resources/ffmpeg)
   /// 2. 系统 PATH 中的 ffmpeg
@@ -92,10 +92,10 @@ class FFmpegHelper {
     } else {
       // macOS/Linux: 先检查常见安装位置，再使用 which 命令
       final commonPaths = [
-        '/opt/homebrew/bin/ffmpeg',  // Apple Silicon Mac (M1/M2/M3)
-        '/usr/local/bin/ffmpeg',     // Intel Mac / Homebrew
-        '/usr/bin/ffmpeg',           // 系统安装
-        '/opt/local/bin/ffmpeg',     // MacPorts
+        '/opt/homebrew/bin/ffmpeg', // Apple Silicon Mac (M1/M2/M3)
+        '/usr/local/bin/ffmpeg', // Intel Mac / Homebrew
+        '/usr/bin/ffmpeg', // 系统安装
+        '/opt/local/bin/ffmpeg', // MacPorts
       ];
 
       // 1. 优先检查常见路径
@@ -111,7 +111,8 @@ class FFmpegHelper {
       try {
         final shell = Shell(
           environment: {
-            'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/opt/local/bin',
+            'PATH':
+                '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/opt/local/bin',
           },
         );
         final result = await shell.run('which ffmpeg');
@@ -127,7 +128,10 @@ class FFmpegHelper {
       }
 
       // 3. 最后尝试直接执行 /opt/homebrew/bin/ffmpeg 或 /usr/local/bin/ffmpeg
-      for (final ffmpegPath in ['/opt/homebrew/bin/ffmpeg', '/usr/local/bin/ffmpeg']) {
+      for (final ffmpegPath in [
+        '/opt/homebrew/bin/ffmpeg',
+        '/usr/local/bin/ffmpeg',
+      ]) {
         try {
           final result = await Process.run(ffmpegPath, ['-version']);
           if (result.exitCode == 0) {
@@ -170,7 +174,7 @@ class FFmpegHelper {
 
       final shell = Shell();
       final result = await shell.run('"$ffmpegPath" -version');
-      
+
       if (result.isNotEmpty && result.first.exitCode == 0) {
         final output = result.first.outText;
         // 提取第一行版本信息
@@ -185,11 +189,11 @@ class FFmpegHelper {
   }
 
   /// 执行 ffmpeg 命令
-  /// 
+  ///
   /// 参数：
   /// - [args]: ffmpeg 命令参数（不包括 ffmpeg 本身）
   /// - [workingDirectory]: 工作目录（可选）
-  /// 
+  ///
   /// 示例：
   /// ```dart
   /// await FFmpegHelper.runFFmpeg([
@@ -198,49 +202,75 @@ class FFmpegHelper {
   ///   'output.mp4'
   /// ]);
   /// ```
+  ///
+  /// 如果 ffmpeg 执行失败（exitCode != 0），会抛出 Exception
   static Future<ProcessResult> runFFmpeg(
     List<String> args, {
     String? workingDirectory,
   }) async {
     final ffmpegPath = await getFFmpegPath();
-    
+
     if (ffmpegPath == null) {
       throw Exception('ffmpeg 不可用。请安装 ffmpeg 或确保应用包含打包的 ffmpeg。');
     }
 
     print('执行 ffmpeg 命令: $ffmpegPath ${args.join(" ")}');
 
-    return await Process.run(
+    final result = await Process.run(
       ffmpegPath,
       args,
       workingDirectory: workingDirectory,
     );
+
+    // 检查命令执行结果
+    if (result.exitCode != 0) {
+      final errorMessage = result.stderr?.toString() ?? '未知错误';
+      throw Exception(
+        'ffmpeg 执行失败 (exitCode: ${result.exitCode}): $errorMessage',
+      );
+    }
+
+    return result;
   }
 
   /// 使用 Shell 执行 ffmpeg 命令（用于复杂命令）
-  /// 
+  ///
   /// 参数：
   /// - [command]: 完整的 ffmpeg 命令（不包括 ffmpeg 路径）
-  /// 
+  ///
   /// 示例：
   /// ```dart
   /// await FFmpegHelper.runFFmpegShell(
   ///   '-i "input.mp4" -filter:v "setpts=0.5*PTS" "output.mp4"'
   /// );
   /// ```
+  ///
+  /// 如果 ffmpeg 执行失败（exitCode != 0），会抛出 Exception
   static Future<List<ProcessResult>> runFFmpegShell(String command) async {
     final ffmpegPath = await getFFmpegPath();
-    
+
     if (ffmpegPath == null) {
       throw Exception('ffmpeg 不可用。请安装 ffmpeg 或确保应用包含打包的 ffmpeg。');
     }
 
     final shell = Shell();
     final fullCommand = '"$ffmpegPath" $command';
-    
+
     print('执行 ffmpeg Shell 命令: $fullCommand');
-    
-    return await shell.run(fullCommand);
+
+    final results = await shell.run(fullCommand);
+
+    // 检查结果集中是否有失败的命令
+    for (final result in results) {
+      if (result.exitCode != 0) {
+        final errorMessage = result.stderr?.toString() ?? '未知错误';
+        throw Exception(
+          'ffmpeg 执行失败 (exitCode: ${result.exitCode}): $errorMessage',
+        );
+      }
+    }
+
+    return results;
   }
 
   /// 清除缓存的 ffmpeg 路径（用于测试或重新检测）
@@ -249,7 +279,7 @@ class FFmpegHelper {
   }
 
   /// 诊断 ffmpeg 检测问题（用于调试）
-  /// 
+  ///
   /// 返回详细的诊断信息
   static Future<Map<String, dynamic>> diagnose() async {
     final result = <String, dynamic>{
@@ -278,10 +308,7 @@ class FFmpegHelper {
 
         for (final path in commonPaths) {
           final exists = await File(path).exists();
-          result['common_paths_checked'].add({
-            'path': path,
-            'exists': exists,
-          });
+          result['common_paths_checked'].add({'path': path, 'exists': exists});
         }
       }
 
@@ -304,4 +331,3 @@ class FFmpegHelper {
     return result;
   }
 }
-
