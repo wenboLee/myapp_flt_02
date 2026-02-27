@@ -16,7 +16,7 @@ echo ""
 # 应用信息
 APP_NAME="文件拖拽应用"
 APP_BUNDLE_NAME="myapp_flt_02"
-VERSION="1.0.0"
+VERSION="2.0.0"
 OUTPUT_DIR="build/macos/dmg"
 DMG_NAME="${APP_BUNDLE_NAME}_${VERSION}.dmg"
 
