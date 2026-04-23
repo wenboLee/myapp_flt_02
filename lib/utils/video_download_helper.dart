@@ -59,7 +59,7 @@ Future<String?> downloadAudioToDirectory(
 
   // Try parse Destination line
   final destMatch = _parseDestinationFromOutput(out);
-  if (destMatch != null) return destMatch;
+  if (destMatch != null) return _renameRemovingSpaces(destMatch);
 
   // Fallback: find most recently modified file with requested extension
   final ext = '.${audioFormat.toLowerCase()}';
@@ -71,7 +71,7 @@ Future<String?> downloadAudioToDirectory(
 
   if (dirList.isNotEmpty) {
     dirList.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
-    return dirList.first.path;
+    return _renameRemovingSpaces(dirList.first.path);
   }
 
   return null;
@@ -107,7 +107,7 @@ Future<String?> downloadVideoToDirectory(
 
   // Try parse Destination line
   final destMatch = _parseDestinationFromOutput(out);
-  if (destMatch != null) return destMatch;
+  if (destMatch != null) return _renameRemovingSpaces(destMatch);
 
   // Fallback: find most recently modified file with requested extension
   final ext = '.${videoFormat.toLowerCase()}';
@@ -119,7 +119,7 @@ Future<String?> downloadVideoToDirectory(
 
   if (dirList.isNotEmpty) {
     dirList.sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
-    return dirList.first.path;
+    return _renameRemovingSpaces(dirList.first.path);
   }
 
   return null;
@@ -140,4 +140,20 @@ String? _parseDestinationFromOutput(String stdout) {
   }
 
   return null;
+}
+
+/// Rename file by removing spaces from the filename.
+/// Returns the new path if renamed, or the original path if no spaces found or rename failed.
+String _renameRemovingSpaces(String filePath) {
+  final dir = path.dirname(filePath);
+  final fileName = path.basename(filePath);
+  final newFileName = fileName.replaceAll(' ', '');
+  if (newFileName == fileName) return filePath;
+  final newPath = path.join(dir, newFileName);
+  try {
+    File(filePath).renameSync(newPath);
+    return newPath;
+  } catch (_) {
+    return filePath;
+  }
 }
